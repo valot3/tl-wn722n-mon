@@ -6,33 +6,80 @@ network_interface=$1
 #--------------------------------------------------
 
 #Functions
-validations() {
+
+select_network_interface() {
+    #Shows available network interfaces but excluding 'eth0' and 'lo' interfaces
+
+    show_banner() {
+        clear
+        echo "-----------------------------------------------------------------------------------------------"
+        echo -e "\n"
+        echo -e "\t\t░▀█▀░█░░░░░█░░░█░█▀▀▄░▀▀▀█░█▀█░█▀█░█▀▀▄░░░░█▀▄▀█░▄▀▀▄░█▀▀▄"
+        echo -e "\t\t░░█░░█░░▀▀░▀▄█▄▀░█░▒█░░░█░░▒▄▀░▒▄▀░█░▒█░▀▀░█░▀░█░█░░█░█░▒█"
+        echo -e "\t\t░░▀░░▀▀░░░░░▀░▀░░▀░░▀░░▐▌░░█▄▄░█▄▄░▀░░▀░░░░▀░░▒▀░░▀▀░░▀░░▀"
+        echo -e "\n"
+        echo "-----------------------------------------------------------------------------------------------"        
+    }
+
+    connected_interfaces=$(iwconfig | grep -i -e "^[a-z]" | cut -d " " -f 1)
+    turned_on_interfaces=$(ifconfig | grep -i -e "^[a-z]" | cut -d ":" -f 1 | grep -E -v "eth0|lo")
+    turned_off_interfaces=$(diff <(echo "$turned_on_interfaces") <(echo "$connected_interfaces") | grep -E "1a2" -A 1 | grep -E "^>" | cut -d " " -f 2)  
+
+    #Banner
+    show_banner
+
+    #Adding the connected interfaces to an array
+    network_interfaces_to_choice=()
+    for interface in $connected_interfaces; do
+        network_interfaces_to_choice=("${network_interfaces_to_choice[@]}" "$interface")
+    done
+
+    #Checking the interfaces connected but turned off and turning them on 
+    for turned_off_interface in $turned_off_interfaces; do
+    
+        for interface in ${network_interfaces_to_choice[@]}; do
+            
+            if [[ $turned_off_interface == $interface ]]; then
+                echo -e "\n[!] The interface '$turned_off_interface' is down"
+                sudo ip l s $turned_off_interface up
+                echo -e "[] The network interface was turned on correctly\n"
+                read -p "Press [ENTER] to continue..." answer
+            fi
+        
+        done
+
+    done
+
+    #Banner
+    show_banner
+
+    #Select an interface
+    echo -e "\n\tSelect one of the following interfaces:"
+
+    total_interfaces=${#network_interfaces_to_choice[@]}
+    for (( i = 0; i < $total_interfaces; i++ )); do
+        echo -e "\t  [$i] ${network_interfaces_to_choice[$i]}"
+    done
+    
+	read -n 1 -p "> " answer
+	echo -e "\n"
+
+	if [[ answer > total_interfaces || answer < 0 ]]; then
+		echo "[!] Invalid answer"
+		exit
+	fi
+
+	network_interface=${network_interfaces_to_choice[$answer]}
+
+}
+
+is_root_validation() {
 	#Validate that the current user is root
 	if [[ $USER != 'root' ]]; then
 		echo -e "[!] Run it as root"
 		exit
 	else
 		:
-	fi
-
-
-	#Validating that the command is not executed without any parameters
-	if [[ $network_interface ]]; then
-		:
-	else
-		echo -e "\n[!] Invalid use.\n[!] Try: set_monitor_mode.sh <network card name>\n"
-		echo -e "[*] You can see the network card name typing 'ifconfig'"
-		exit	
-	fi
-
-
-	#Validating the network interface name
-	ifconfig | grep "$network_interface" | cut -d ":" -f 1 | grep -e "^$network_interface$" >/dev/null 2>&1
-	if [[ $? != 0 ]]; then
-		echo -e "\n[!] Invalid use.\n[!] Try: set_monitor_mode.sh <network card name>\n"
-		echo -e "[*] You can see the network card name typing 'ifconfig'"
-		echo -e "[*] If you can't see it, the network interface may be down. Try 'iwconfig' and try to pull up the desired interface."
-		exit
 	fi
 }
 
@@ -129,7 +176,8 @@ main_screen() {
 #--------------------------------------------------
 #Main
 
-validations
+is_root_validation
+select_network_interface
 while true; do
 	main_screen
 
