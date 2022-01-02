@@ -170,7 +170,7 @@ set_monitor_mode() {
 set_managed_mode() {
 	# Setting the network interface in managed mode
     
-    sudo service NetworkManager start
+    sudo service NetworkManager restart
     echo -e "[*] Process: 'NetworkManager' started"
     
     for process in $conflicting_processes; do
