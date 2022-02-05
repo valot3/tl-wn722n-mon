@@ -173,10 +173,10 @@ set_managed_mode() {
     sudo service NetworkManager restart
     echo -e "[*] Process: 'NetworkManager' started"
     
-    for process in $conflicting_processes; do
-        sudo service $process start
-        echo -e "[*] Process: '$process' started"
-    done
+    #for process in $conflicting_processes; do
+    #   sudo service $process start
+    #   echo -e "[*] Process: '$process' started"
+    #done
 
 	sudo iw $network_interface set type managed
 	sudo rfkill unblock wifi
