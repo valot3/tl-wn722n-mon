@@ -54,6 +54,7 @@ main_screen() {
     echo -e "\t[1] Change the network interface name"
     echo -e "\t[2] Change to monitor mode"
     echo -e "\t[3] Change to managed mode"
+
     echo -e "\n\t[0] Exit"
 
     echo -e "\n"
@@ -65,6 +66,39 @@ main_screen() {
 #
 # Main functions
 #
+
+install_drivers() {
+    sudo echo "blacklist r8188eu" > "/etc/modprobe.d/realtek.conf"
+
+    cd /opt
+    folder_exist=$(/usr/bin/ls rtl8188eus &>/dev/null)
+    if [[ $? == 0 ]]; then
+        sudo rm -rf rtl8188eus
+    fi
+    git clone https://github.com/aircrack-ng/rtl8188eus.git &>/dev/null
+
+    cd rtl8188eus
+    make &>/dev/null
+    sudo make install &>/dev/null
+
+    echo -e "\nDriver installation will finish after reboot"
+    
+    while [[ true ]]; do
+        read -p "Do you want to reboot now? [Y/n] " restart
+
+        if [[ $restart == '' || $restart == 'Y' || $restart == 'y' ]]; then
+            sudo systemctl reboot
+        
+        elif [[ $restart == 'N' || $restart == 'n' ]]; then
+            echo "Exiting..."
+            break
+
+        else
+            echo "[!] Invalid option"
+            continue 
+        fi
+    done 
+}
 
 select_network_interface() {
     # Shows available network interfaces but excluding 'eth0' and 'lo' interfaces
@@ -168,15 +202,10 @@ set_monitor_mode() {
 
 
 set_managed_mode() {
-	# Setting the network interface in managed mode
-    
+    # Setting the network interface in managed mode
+
     sudo service NetworkManager restart
     echo -e "[*] Process: 'NetworkManager' started"
-    
-    #for process in $conflicting_processes; do
-    #   sudo service $process start
-    #   echo -e "[*] Process: '$process' started"
-    #done
 
 	sudo iw $network_interface set type managed
 	sudo rfkill unblock wifi
@@ -193,7 +222,33 @@ set_managed_mode() {
 #
 
 is_root_validation
+
+while [[ true ]]; do
+    clear
+    title_banner
+
+    echo -e "\n"
+    read -p "Do you want to install the drivers for tl-wn722n? [N/y] " install_drivers_option
+
+    if [[ $install_drivers_option == '' || $install_drivers_option == 'N' || $install_drivers_option == 'n' ]]; then
+        echo "Continuing the main program..."
+        break
+
+    elif [[ $install_drivers_option == 'Y' || $install_drivers_option == 'y' ]]; then
+        echo -e "\nInstalling drivers...\nPlease wait a minute, this may take a while"
+        install_drivers
+        exit
+
+    else   
+        echo "[!] Invalid option"
+        continue
+
+    fi
+
+done
+
 select_network_interface
+
 while true; do
 	main_screen
 
