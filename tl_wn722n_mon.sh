@@ -4,6 +4,12 @@
 # Variables
 #
 network_interface=$1
+export TERM='xterm-256color'
+SCRIPT_HOME=$(pwd)
+
+# Script files
+touch $SCRIPT_HOME/.conflicting_processes.txt
+conflicting_processes_file=$SCRIPT_HOME/.conflicting_processes.txt
 
 # ==================================================
 #
@@ -35,9 +41,13 @@ title_banner() {
     
 }
 
+# ==================================================
+#
+#
+# 
 
 main_screen() {
-	network_interface_mode=$(iwconfig | grep -e "^$network_interface" -A 5 | grep "Mode" | tr -s " \t" "\n" | grep "Mode:" | cut -d ":" -f 2)
+	network_interface_mode=$(iw dev $network_interface info | grep 'type' | cut -d " " -f 2)
     
     # Clear and show the title banner
 	clear
@@ -58,9 +68,11 @@ main_screen() {
     echo -e "\n\t[0] Exit"
 
     echo -e "\n"
-    read -n 1 -p "> " answer
+    read -n 1 -p "> " answer
     echo -e "\n"
 }
+
+
 
 # ==================================================
 #
@@ -71,8 +83,7 @@ install_drivers() {
     sudo echo "blacklist r8188eu" > "/etc/modprobe.d/realtek.conf"
 
     cd /opt
-    folder_exist=$(/usr/bin/ls rtl8188eus &>/dev/null)
-    if [[ $? == 0 ]]; then
+    if (/usr/bin/ls rtl8188eus &>/dev/null); then
         sudo rm -rf rtl8188eus
     fi
     git clone https://github.com/aircrack-ng/rtl8188eus.git &>/dev/null
@@ -81,9 +92,18 @@ install_drivers() {
     make &>/dev/null
     sudo make install &>/dev/null
 
-    echo -e "\nDriver installation will finish after reboot"
+    if [$? == 0]; then
+        echo -e "Drivers installation was successful"
+        echo -e "\nDriver installation will finish after reboot"
     
-    while [[ true ]]; do
+    else
+        echo -e "Drivers installation failed"
+        echo -e "Manual installation is recommended\nIn the driver directory, try: \n  1: make\n  2: sudo make install"
+        exit
+    fi
+    
+    
+    while true; do
         read -p "Do you want to reboot now? [Y/n] " restart
 
         if [[ $restart == '' || $restart == 'Y' || $restart == 'y' ]]; then
@@ -101,10 +121,27 @@ install_drivers() {
 }
 
 select_network_interface() {
-    # Shows available network interfaces but excluding 'eth0' and 'lo' interfaces
-    connected_interfaces=$(iwconfig | grep -i -e "^[a-z]" | cut -d " " -f 1)
-    turned_on_interfaces=$(ifconfig | grep -i -e "^[a-z]" | cut -d ":" -f 1 | grep -E -v "eth0|lo")
-    turned_off_interfaces=$(diff <(echo "$turned_on_interfaces") <(echo "$connected_interfaces") | grep -E "1a2" -A 1 | grep -E "^>" | cut -d " " -f 2)  
+    # Select available network interfaces but excluding ethernet and loopback interfaces.
+    #connected_interfaces_list=$(nmcli -g type,device d status | grep 'wifi' | cut -d ":" -f 2)
+    connected_interfaces_list=$(ifconfig | grep -i -e "^[a-z]" | grep -v -E "enp2s0|lo" | cut -d " " -f 1 | tr -d ":")
+    connected_interfaces=()
+    for interface in $connected_interfaces_list; do
+        connected_interfaces+=($interface)
+    done
+
+    turned_on_interfaces=()
+    turned_off_interfaces=()
+    for interface in connected_interfaces; do
+        interface_status=$(ip address | grep $interface | grep -E "UP|DOWN")
+        if ( echo $interface_status | grep "UP" &>/dev/null ); then
+            turned_on_interfaces+=($interface)
+        
+        elif ( echo $interface_status | grep "DOWN" &>/dev/null ); then
+            turned_off_interfaces+=($interface)
+        
+        fi
+    done
+      
 
 
     # Clear and show the title banner
@@ -112,28 +149,20 @@ select_network_interface() {
     title_banner
 
 
-    # Adding the connected interfaces to an array
-    network_interfaces_to_choice=()
-    for interface in $connected_interfaces; do
-        network_interfaces_to_choice=("${network_interfaces_to_choice[@]}" "$interface")
-    done
-
-
     # Checking the interfaces connected but turned off and turning them on 
     for turned_off_interface in $turned_off_interfaces; do
-    
-        for interface in ${network_interfaces_to_choice[@]}; do
-            
-            if [[ $turned_off_interface == $interface ]]; then
-                echo -e "\n[!] The interface '$turned_off_interface' is down"
-                sudo ip l s $turned_off_interface up
-                echo -e "[] The network interface was turned on correctly\n"
-                read -p "Press [ENTER] to continue..." answer
-            fi
-        
-        done
 
+        echo -e "\n[!] The interface '$turned_off_interface' is down"
+        sudo ip l s $turned_off_interface up
+        if ($? == 0); then
+            echo -e "[*] Network interface powered up successfully\n"
+            read -p "Press [ENTER] to continue..." answer
+        else
+            echo -e "[!] The network interface seems to be down"
+        fi
+        
     done
+
 
     # Clear and show the title banner
 	clear
@@ -142,22 +171,24 @@ select_network_interface() {
 
     # Select an interface
     echo -e "\n\tSelect one of the following interfaces:"
-
-    total_interfaces=${#network_interfaces_to_choice[@]}
-    for (( i = 0; i < $total_interfaces; i++ )); do
-        echo -e "\t  [$i] ${network_interfaces_to_choice[$i]}"
+    total_interfaces=${#connected_interfaces[@]}
+    for (( i = 0, j = 1; i < $total_interfaces; i++, j++ )); do
+        echo -e "\t  [$j] ${connected_interfaces[$i]}"
     done
     
-	read -n 1 -p "> " answer
-	echo -e "\n"
+    while true; do
+	    read -n 1 -p "> " answer
+	    echo -e "\n"
 
-	if [[ answer > total_interfaces || answer < 0 ]]; then
-		echo "[!] Invalid answer"
-		exit
-	fi
+	    if [[ $answer > $total_interfaces || $answer < 0 ]]; then
+	    	echo "[!] Invalid answer"
+        else
+            break
+	    fi
+    done
 
-	network_interface=${network_interfaces_to_choice[$answer]}
 
+	network_interface=${connected_interfaces[$answer - 1]}
 }
 
 
@@ -183,12 +214,28 @@ change_network_interface_name() {
 
 
 set_monitor_mode() {
-	# Setting the network interface in monitor mode
+    if [ $network_interface_mode == "monitor" ]; then
+        echo -e "[!] The current interface is already in monitor mode!"
+        read -p "Press [ENTER] to continue..." answer
+        return 0
+    fi
 
-	conflicting_processes=$(sudo airmon-ng check $network_interface | grep "PID Name" -A 100 | grep -e "[0-9]" | tr -s " \t" "\n" | grep -i -e "[a-z]")
-	for process in $conflicting_processes; do
-    	sudo service $process stop
-		echo -e "[*] Process: '$process' stoped"
+	if (! aircrack-ng &>/dev/null); then
+        echo -e "Aircrack-ng suite is not installed, please install it manually"
+    fi
+    
+
+    # Setting the network interface in monitor mode
+    conflicting_processes=$(sudo airmon-ng check $network_interface | grep "PID Name" -A 100 | grep -e "[0-9]" | tr -s " \t" "\n" | grep -i -e "[a-z]")
+    for process in $conflicting_processes; do
+        echo "$process" >> $conflicting_processes_file
+
+        sudo systemctl -q stop $process
+        if [ $? == 0 ]; then
+            echo -e "[*] Process: '$process' stoped"
+        else
+            echo -e "[x] Something went wrong during the stop of $process"
+        fi
 	done
 
 	sudo iw $network_interface set type monitor
@@ -196,23 +243,43 @@ set_monitor_mode() {
 	sudo ip l s $network_interface up
 	
 	echo -e "\n"
-	echo "[] Network card '$network_interface' configured correctly in monitor mode"
+	echo "[*] Network card '$network_interface' configured correctly in monitor mode"
 	read -p "Press [ENTER] to continue..." answer 
 }
 
 
 set_managed_mode() {
+    if [ $network_interface_mode == "managed" ]; then
+        echo -e "[!] The current interface is already in managed mode!"
+        read -p "Press [ENTER] to continue..." answer
+        return 0
+    fi
+    
+
     # Setting the network interface in managed mode
+    conflicting_processes_file_content=$(/usr/bin/cat $conflicting_processes_file)
+    for process in $conflicting_processes_file_content; do
+    	sudo systemctl -q restart $process
+        if [ $? == 0 ]; then
+            echo -e "[*] Process: '$process' started"
+        else
+            echo -e "[x] Something went wrong during the start of $process"
+        fi
+	done
+    
 
-    sudo service NetworkManager restart
-    echo -e "[*] Process: 'NetworkManager' started"
 
+    if (/usr/bin/ls $conflicting_processes_file &>/dev/null); then
+        sudo rm $conflicting_processes_file
+    fi
+
+    
 	sudo iw $network_interface set type managed
 	sudo rfkill unblock wifi
 	sudo ip l s $network_interface up
 
 	echo -e "\n"
-	echo "[] Network card '$network_interface' configured correctly in managed mode"
+	echo "[*] Network card '$network_interface' configured correctly in managed mode"
 	read -p "Press [ENTER] to continue..." answer
 }
 
@@ -221,9 +288,10 @@ set_managed_mode() {
 # Main
 #
 
+
 is_root_validation
 
-while [[ true ]]; do
+while true; do
     clear
     title_banner
 
@@ -247,6 +315,7 @@ while [[ true ]]; do
 
 done
 
+clear
 select_network_interface
 
 while true; do
